@@ -1,0 +1,618 @@
+
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>raj SNAKE BATTLE</title>
+
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+<style>
+*{box-sizing:border-box}
+
+body{
+ margin:0;
+ color:white;
+ font-family:Arial,sans-serif;
+ text-align:center;
+ min-height:100vh;
+ background:
+ linear-gradient(135deg,rgba(5,8,25,.88),rgba(10,15,40,.78)),
+ url("https://images.unsplash.com/photo-1519681393784-d120267933ba");
+ background-size:cover;
+ background-position:center;
+ background-attachment:fixed;
+}
+
+h1{
+ color:#00ffc8;
+ text-shadow:0 0 15px #00ffc8,0 0 30px #00aaff;
+ margin:18px 5px;
+}
+
+.panel{
+ width:95%;
+ max-width:700px;
+ margin:12px auto;
+ padding:15px;
+ background:rgba(10,15,35,.88);
+ border:1px solid #00eaff;
+ border-radius:16px;
+ box-shadow:0 0 18px #008cff55;
+}
+
+input,button{
+ padding:12px;
+ border:0;
+ border-radius:9px;
+ margin:5px;
+ font-size:15px;
+}
+
+input{
+ width:190px;
+ max-width:90%;
+ background:#202b45;
+ color:white;
+ border:1px solid #00eaff;
+}
+
+button{
+ color:white;
+ background:linear-gradient(45deg,#007bff,#a000ff);
+ cursor:pointer;
+ font-weight:bold;
+}
+
+button:hover{filter:brightness(1.3)}
+
+#my-id{
+ color:#00ffae;
+ font-size:19px;
+ overflow-wrap:anywhere;
+}
+
+#status{color:#ffe66d}
+
+.game-area{
+ width:95%;
+ max-width:650px;
+ margin:15px auto;
+}
+
+canvas{
+ display:block;
+ width:100%;
+ height:auto;
+ background:rgba(0,0,0,.75);
+ border:3px solid #00ffb7;
+ border-radius:14px;
+ box-shadow:0 0 25px #00ffb755;
+}
+
+.score{
+ display:flex;
+ justify-content:space-around;
+ gap:8px;
+ flex-wrap:wrap;
+ margin:12px 0;
+ font-size:17px;
+}
+
+.score div{
+ background:#111d36;
+ padding:12px;
+ border-radius:10px;
+ border:1px solid #00bfff;
+}
+
+.controls{
+ display:grid;
+ grid-template-columns:repeat(3,65px);
+ justify-content:center;
+ gap:8px;
+ margin:15px auto;
+}
+
+.controls button{
+ height:55px;
+ font-size:23px;
+ padding:5px;
+}
+
+.empty{visibility:hidden}
+
+#gameOver{
+ display:none;
+ color:#ff5555;
+ font-size:26px;
+ font-weight:bold;
+ margin:12px;
+ text-shadow:0 0 12px red;
+}
+
+small{color:#cbd5e1}
+</style>
+</head>
+
+<body>
+
+<h1>🐍 DEV SNAKE BATTLE</h1>
+
+<div class="panel">
+
+ <p>YOUR PLAYER ID</p>
+ <div id="my-id">Connecting...</div>
+
+ <button onclick="copyID()">COPY ID</button>
+
+ <p>अपने दोस्त की ID डालें</p>
+
+ <input id="join-id" placeholder="Friend Peer ID">
+
+ <button onclick="connectFriend()">CONNECT & PLAY</button>
+
+ <p id="status">Server से कनेक्ट हो रहा है...</p>
+
+ <button onclick="startGame()">START GAME</button>
+ <button onclick="restartGame()">RESTART</button>
+
+</div>
+
+<div class="game-area">
+
+ <div class="score">
+  <div>🟢 YOU: <span id="myScore">0</span></div>
+  <div>🔴 FRIEND: <span id="friendScore">0</span></div>
+ </div>
+
+ <canvas id="game" width="600" height="420"></canvas>
+
+ <div id="gameOver">GAME OVER!</div>
+
+ <div class="controls">
+  <button class="empty"> </button>
+  <button onclick="changeDir('up')">⬆️</button>
+  <button class="empty"> </button>
+
+  <button onclick="changeDir('left')">⬅️</button>
+  <button onclick="changeDir('down')">⬇️</button>
+  <button onclick="changeDir('right')">➡️</button>
+ </div>
+
+ <small>PC: Arrow Keys | Mobile: ऊपर दिए गए बटन</small>
+
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+const CELL=20;
+const COLS=30;
+const ROWS=21;
+
+let peer;
+let conn=null;
+let connected=false;
+let running=false;
+let dead=false;
+let isHost=false;
+
+let mySnake=[];
+let enemySnake=[];
+let myDir="right";
+let nextDir="right";
+let enemyDir="left";
+
+let myScore=0;
+let enemyScore=0;
+
+let food={x:15,y:10};
+let lastMove=0;
+let lastSend=0;
+
+const colors=[
+ "#00ff66","#ff00ff","#00eaff",
+ "#ffcc00","#ff4444","#a855f7",
+ "#ffffff","#ff8800"
+];
+
+let myColor=colors[0];
+let enemyColor=colors[2];
+
+function newSnake(x,y,dir){
+ return [
+  {x,y},
+  {x:x-1,y},
+  {x:x-2,y}
+ ];
+}
+
+function randomFood(){
+ let f;
+ do{
+  f={
+   x:Math.floor(Math.random()*COLS),
+   y:Math.floor(Math.random()*ROWS)
+  };
+ }while(
+  mySnake.some(p=>p.x===f.x&&p.y===f.y)||
+  enemySnake.some(p=>p.x===f.x&&p.y===f.y)
+ );
+ return f;
+}
+
+function setup(){
+ mySnake=newSnake(5,10,"right");
+ enemySnake=newSnake(23,10,"left");
+ myDir="right";
+ nextDir="right";
+ enemyDir="left";
+ myScore=0;
+ enemyScore=0;
+ dead=false;
+ running=false;
+ food=randomFood();
+
+ document.getElementById("myScore").textContent=0;
+ document.getElementById("friendScore").textContent=0;
+ document.getElementById("gameOver").style.display="none";
+}
+
+function setStatus(text,color="#ffe66d"){
+ const s=document.getElementById("status");
+ s.textContent=text;
+ s.style.color=color;
+}
+
+// PeerJS connection
+peer=new Peer();
+
+peer.on("open",id=>{
+ document.getElementById("my-id").textContent=id;
+ setStatus("Ready! दोस्त की ID से Connect करें","#00ffae");
+});
+
+peer.on("connection",c=>{
+ if(conn && conn.open){
+  c.close();
+  return;
+ }
+ conn=c;
+ isHost=true;
+ setupConnection();
+});
+
+peer.on("error",err=>{
+ setStatus("Connection Error: "+err.type,"#ff5555");
+});
+
+function connectFriend(){
+ const id=document.getElementById("join-id").value.trim();
+
+ if(!id){
+  alert("दोस्त की Peer ID डालें!");
+  return;
+ }
+
+ if(id===peer.id){
+  alert("अपनी ID से कनेक्ट नहीं कर सकते!");
+  return;
+ }
+
+ if(conn && conn.open) conn.close();
+
+ isHost=false;
+ conn=peer.connect(id,{reliable:true});
+ setupConnection();
+}
+
+function setupConnection(){
+ if(!conn)return;
+
+ conn.on("open",()=>{
+  connected=true;
+  setup();
+  setStatus("दोनों खिलाड़ी Connected! Game शुरू करें।","#00ffae");
+
+  sendData({
+   type:"hello",
+   color:myColor,
+   food:food
+  });
+ });
+
+ conn.on("data",data=>{
+  if(!data)return;
+
+  if(data.type==="hello"){
+   enemyColor=data.color||enemyColor;
+   if(!isHost && data.food)food=data.food;
+  }
+
+  if(data.type==="update"){
+   enemySnake=data.snake||enemySnake;
+   enemyScore=data.score||0;
+   enemyDir=data.dir||enemyDir;
+   enemyColor=data.color||enemyColor;
+
+   if(data.food && !isHost)food=data.food;
+
+   document.getElementById("friendScore").textContent=enemyScore;
+  }
+
+  if(data.type==="dead"){
+   if(!dead){
+    finishGame("आप जीत गए!");
+   }
+  }
+
+  if(data.type==="restart"){
+   setup();
+   running=true;
+  }
+ });
+
+ conn.on("close",()=>{
+  connected=false;
+  running=false;
+  setStatus("दोस्त Disconnect हो गया","#ff5555");
+ });
+
+ conn.on("error",()=>{
+  setStatus("Connection में समस्या!","#ff5555");
+ });
+}
+
+function sendData(data){
+ if(conn && conn.open){
+  conn.send(data);
+ }
+}
+
+function copyID(){
+ const id=peer.id;
+ if(id){
+  navigator.clipboard.writeText(id)
+  .then(()=>alert("आपकी ID Copy हो गई!"))
+  .catch(()=>alert("ID: "+id));
+ }
+}
+
+function startGame(){
+ if(!connected){
+  alert("पहले अपने दोस्त को Connect करें!");
+  return;
+ }
+ if(dead)setup();
+ running=true;
+ setStatus("GAME STARTED!","#00ffae");
+}
+
+function restartGame(){
+ if(!connected){
+  setup();
+  return;
+ }
+ setup();
+ running=true;
+ sendData({type:"restart"});
+ setStatus("नया गेम शुरू!","#00ffae");
+}
+
+// Direction controls
+function changeDir(d){
+ const opposite={
+  up:"down",
+  down:"up",
+  left:"right",
+  right:"left"
+ };
+
+ if(opposite[d]!==myDir){
+  nextDir=d;
+ }
+}
+
+document.addEventListener("keydown",e=>{
+ const keys={
+  ArrowUp:"up",
+  ArrowDown:"down",
+  ArrowLeft:"left",
+  ArrowRight:"right"
+ };
+
+ if(keys[e.key]){
+  e.preventDefault();
+  changeDir(keys[e.key]);
+ }
+});
+
+// Game collision
+function hit(a,b){
+ return a.x===b.x&&a.y===b.y;
+}
+
+function finishGame(message){
+ if(dead)return;
+ dead=true;
+ running=false;
+
+ document.getElementById("gameOver").textContent=message;
+ document.getElementById("gameOver").style.display="block";
+
+ if(message==="आप हार गए!"){
+  sendData({type:"dead"});
+ }
+
+ setStatus(message,"#ff5555");
+}
+
+function moveGame(){
+ if(!running||dead||!connected)return;
+
+ myDir=nextDir;
+
+ let head={...mySnake[0]};
+
+ if(myDir==="up")head.y--;
+ if(myDir==="down")head.y++;
+ if(myDir==="left")head.x--;
+ if(myDir==="right")head.x++;
+
+ // Wall collision
+ if(head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS){
+  finishGame("आप हार गए!");
+  return;
+ }
+
+ // Own body collision
+ if(mySnake.some(p=>hit(p,head))){
+  finishGame("आप हार गए!");
+  return;
+ }
+
+ // Opponent body collision
+ if(enemySnake.some(p=>hit(p,head))){
+  finishGame("आप हार गए!");
+  return;
+ }
+
+ mySnake.unshift(head);
+
+ if(hit(head,food)){
+  myScore+=10;
+  food=randomFood();
+  document.getElementById("myScore").textContent=myScore;
+ }else{
+  mySnake.pop();
+ }
+
+ // Speed increases with score
+}
+
+function update(){
+ if(running&&!dead){
+  let speed=Math.max(65,140-Math.floor(myScore/20)*5);
+
+  if(Date.now()-lastMove>speed){
+   lastMove=Date.now();
+   moveGame();
+  }
+
+  if(Date.now()-lastSend>80){
+   lastSend=Date.now();
+
+   sendData({
+    type:"update",
+    snake:mySnake,
+    score:myScore,
+    dir:myDir,
+    food:food,
+    color:myColor
+   });
+  }
+ }
+}
+
+// Drawing
+function drawGrid(){
+ ctx.strokeStyle="rgba(0,255,255,.09)";
+ ctx.lineWidth=1;
+
+ for(let x=0;x<=canvas.width;x+=CELL){
+  ctx.beginPath();
+  ctx.moveTo(x,0);
+  ctx.lineTo(x,canvas.height);
+  ctx.stroke();
+ }
+
+ for(let y=0;y<=canvas.height;y+=CELL){
+  ctx.beginPath();
+  ctx.moveTo(0,y);
+  ctx.lineTo(canvas.width,y);
+  ctx.stroke();
+ }
+}
+
+function drawSnake(snake,color,name){
+ snake.forEach((p,i)=>{
+  ctx.fillStyle=color;
+  ctx.shadowColor=color;
+  ctx.shadowBlur=i===0?16:7;
+
+  ctx.beginPath();
+  ctx.roundRect(
+   p.x*CELL+2,
+   p.y*CELL+2,
+   CELL-4,
+   CELL-4,
+   6
+  );
+  ctx.fill();
+
+  if(i===0){
+   ctx.shadowBlur=0;
+   ctx.fillStyle="#111";
+
+   ctx.beginPath();
+   ctx.arc(p.x*CELL+7,p.y*CELL+7,2,0,Math.PI*2);
+   ctx.arc(p.x*CELL+13,p.y*CELL+7,2,0,Math.PI*2);
+   ctx.fill();
+  }
+ });
+ ctx.shadowBlur=0;
+}
+
+function draw(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+
+ drawGrid();
+
+ // Food
+ ctx.fillStyle="#ff3030";
+ ctx.shadowColor="#ff0000";
+ ctx.shadowBlur=20;
+ ctx.beginPath();
+ ctx.arc(
+  food.x*CELL+10,
+  food.y*CELL+10,
+  8,0,Math.PI*2
+ );
+ ctx.fill();
+ ctx.shadowBlur=0;
+
+ // Player snakes
+ drawSnake(mySnake,myColor,"YOU");
+
+ if(connected){
+  drawSnake(enemySnake,enemyColor,"FRIEND");
+ }
+
+ if(!running){
+  ctx.fillStyle="white";
+  ctx.font="bold 23px Arial";
+  ctx.textAlign="center";
+  ctx.shadowColor="#00eaff";
+  ctx.shadowBlur=12;
+  ctx.fillText(
+   connected?"PRESS START GAME":"WAITING FOR FRIEND",
+   canvas.width/2,
+   canvas.height/2
+  );
+  ctx.shadowBlur=0;
+ }
+
+ requestAnimationFrame(draw);
+}
+
+setup();
+draw();
+
+setInterval(update,20);
+
+</script>
+</body>
+</html>
